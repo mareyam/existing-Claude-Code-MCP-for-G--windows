@@ -1,5 +1,10 @@
 import base64
+import mimetypes
+import os
 import re
+from email import encoders
+from email.mime.base import MIMEBase
+from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any, Dict, List, Optional
@@ -9,9 +14,17 @@ from googleapiclient.discovery import build
 
 
 class GmailService:
-    def __init__(self, credentials: Credentials, account_name: str = ""):
+    def __init__(
+        self,
+        credentials: Credentials,
+        account_name: str = "",
+        signature_html: str = "",
+        signature_image_path: str = "",
+    ):
         self.service = build("gmail", "v1", credentials=credentials)
         self.account_name = account_name
+        self.signature_html = signature_html or ""
+        self.signature_image_path = signature_image_path or ""
 
     # ------------------------------------------------------------------ profile
 
@@ -72,15 +85,18 @@ class GmailService:
         body: str,
         cc: str = "",
         bcc: str = "",
+        html_body: str = "",
+        attachments: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        msg = MIMEText(body, "plain")
-        msg["to"] = to
-        msg["subject"] = subject
-        if cc:
-            msg["cc"] = cc
-        if bcc:
-            msg["bcc"] = bcc
-
+        msg = self._build_message(
+            to=to,
+            subject=subject,
+            body=body,
+            cc=cc,
+            bcc=bcc,
+            html_body=html_body,
+            attachments=attachments,
+        )
         return self.service.users().messages().send(
             userId="me", body={"raw": self._encode(msg)}
         ).execute()
@@ -92,18 +108,125 @@ class GmailService:
         body: str,
         cc: str = "",
         bcc: str = "",
+        html_body: str = "",
+        attachments: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        msg = MIMEText(body, "plain")
+        msg = self._build_message(
+            to=to,
+            subject=subject,
+            body=body,
+            cc=cc,
+            bcc=bcc,
+            html_body=html_body,
+            attachments=attachments,
+        )
+        return self.service.users().drafts().create(
+            userId="me", body={"message": {"raw": self._encode(msg)}}
+        ).execute()
+
+    # ------------------------------------------------------------------ message building
+
+    def _build_message(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+        cc: str = "",
+        bcc: str = "",
+        html_body: str = "",
+        attachments: Optional[List[str]] = None,
+    ) -> MIMEMultipart:
+        """Assemble a MIME message with optional HTML body, per-account
+        signature (HTML or inline image fallback) and file attachments.
+
+        Structure (outer to inner):
+            mixed     -> holds file attachments
+              related -> holds the inline signature image (cid)
+                alternative -> text/plain + text/html
+
+        A plain-text body is always included as a fallback for clients that
+        do not render HTML.
+        """
+        # Decide whether we need an HTML part at all.
+        use_inline_image = bool(self.signature_image_path) and not self.signature_html
+
+        html_content = html_body or ""
+        if self.signature_html:
+            # Append the configured HTML signature to the HTML part.
+            base_html = html_content or self._text_to_html(body)
+            html_content = base_html + self.signature_html
+        elif use_inline_image:
+            base_html = html_content or self._text_to_html(body)
+            html_content = base_html + '<br><img src="cid:signature_image">'
+
+        # --- alternative: plain text + (optional) html ---
+        alternative = MIMEMultipart("alternative")
+        alternative.attach(MIMEText(body, "plain", "utf-8"))
+        if html_content:
+            alternative.attach(MIMEText(html_content, "html", "utf-8"))
+
+        # --- related: alternative + inline signature image (if any) ---
+        if use_inline_image:
+            related = MIMEMultipart("related")
+            related.attach(alternative)
+            related.attach(self._inline_image(self.signature_image_path))
+            content_root = related
+        else:
+            content_root = alternative
+
+        # --- mixed: content + file attachments ---
+        attachments = attachments or []
+        if attachments:
+            outer = MIMEMultipart("mixed")
+            outer.attach(content_root)
+            for path in attachments:
+                outer.attach(self._file_attachment(path))
+            msg = outer
+        else:
+            msg = content_root
+
         msg["to"] = to
         msg["subject"] = subject
         if cc:
             msg["cc"] = cc
         if bcc:
             msg["bcc"] = bcc
+        return msg
 
-        return self.service.users().drafts().create(
-            userId="me", body={"message": {"raw": self._encode(msg)}}
-        ).execute()
+    @staticmethod
+    def _text_to_html(text: str) -> str:
+        """Escape plain text and convert newlines to <br> for the HTML part."""
+        escaped = (
+            text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        )
+        return escaped.replace("\n", "<br>")
+
+    @staticmethod
+    def _inline_image(path: str) -> MIMEImage:
+        if not os.path.isfile(path):
+            raise ValueError(f"Signature image not found: {path}")
+        with open(path, "rb") as f:
+            img = MIMEImage(f.read())
+        img.add_header("Content-ID", "<signature_image>")
+        img.add_header("Content-Disposition", "inline", filename=os.path.basename(path))
+        return img
+
+    @staticmethod
+    def _file_attachment(path: str) -> MIMEBase:
+        if not os.path.isfile(path):
+            raise ValueError(f"Attachment file not found: {path}")
+        ctype, _ = mimetypes.guess_type(path)
+        maintype, subtype = (ctype or "application/octet-stream").split("/", 1)
+        with open(path, "rb") as f:
+            part = MIMEBase(maintype, subtype)
+            part.set_payload(f.read())
+        encoders.encode_base64(part)
+        part.add_header(
+            "Content-Disposition", "attachment", filename=os.path.basename(path)
+        )
+        return part
 
     def list_drafts(self, max_results: int = 20) -> List[Dict[str, Any]]:
         result = self.service.users().drafts().list(

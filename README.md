@@ -50,11 +50,14 @@ Edit `config.json`:
   "accounts": {
     "personal": {
       "email": "you@gmail.com",
-      "description": "Personal Gmail"
+      "description": "Personal Gmail",
+      "signature_html": "<div><br>--<br><strong>Your Name</strong><br>example.com</div>",
+      "signature_image_path": "./signatures/personal.png"
     },
     "work": {
       "email": "you@company.com",
-      "description": "Work account"
+      "description": "Work account",
+      "signature_image_path": "./signatures/work.png"
     }
   },
   "credentials_dir": "./credentials"
@@ -62,6 +65,19 @@ Edit `config.json`:
 ```
 
 The account keys (`personal`, `work`) are the names you'll use when asking Claude to interact with a specific account.
+
+#### Per-account signatures (optional)
+
+Each account can have its own email signature, applied automatically to every
+message it sends — you never pass signature info as a tool parameter.
+
+| Field | Behavior |
+|-------|----------|
+| `signature_html` | If set, this HTML block is appended to the HTML part of every outgoing email from that account. Takes priority over `signature_image_path`. |
+| `signature_image_path` | Used **only** when `signature_html` is not set. The image is embedded inline at the bottom of the email (via `Content-ID` / `<img src="cid:...">`), so it appears as a signature image, not a file attachment. Path is relative to the project root or absolute. |
+
+If neither field is set, emails are sent with no signature. A plain-text body is
+always included as a fallback for clients that don't render HTML.
 
 ### 4. Get Google OAuth credentials
 
@@ -115,12 +131,25 @@ All tools will appear automatically.
 | `gmail_search` | Search emails using Gmail query syntax (one or all accounts) |
 | `gmail_read_message` | Read the full content of a message |
 | `gmail_read_thread` | Read all messages in a thread |
-| `gmail_send` | Send an email from a specific account |
-| `gmail_create_draft` | Save an email as a draft |
+| `gmail_send` | Send an email from a specific account (supports HTML body + attachments) |
+| `gmail_create_draft` | Save an email as a draft (supports HTML body + attachments) |
 | `gmail_list_drafts` | List drafts in an account |
 | `gmail_list_labels` | List all labels and folders |
 | `gmail_modify_labels` | Add or remove labels (mark read/unread, star, etc.) |
 | `gmail_trash` | Move a message to trash |
+
+#### `gmail_send` / `gmail_create_draft` parameters
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `account` | yes | Account name to send from / draft in |
+| `to` | yes | Recipient(s), comma-separated |
+| `subject` | yes | Email subject |
+| `body` | yes | Plain-text body. Always sent as a fallback for non-HTML clients. |
+| `html_body` | no | HTML body. The account's configured signature is appended automatically. |
+| `cc` | no | CC recipients, comma-separated |
+| `bcc` | no | BCC recipients, comma-separated |
+| `attachments` | no | Array of local file paths to attach. A missing path returns a clear error. |
 
 ### Google Calendar
 

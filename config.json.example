@@ -1,20 +1,19 @@
 {
   "accounts": {
     "personal": {
-      "email": "alizamankhan152@gmail.com",
-      "description": "Personal Gmail"
+      "email": "you@gmail.com",
+      "description": "Personal Gmail",
+
+      "_comment_signature_html": "Optional. HTML signature appended to the HTML part of every outgoing email from this account. If set, it takes priority over signature_image_path.",
+      "signature_html": "<div style=\"font-family:Arial,sans-serif;font-size:13px;color:#555\"><br>--<br><strong>Your Name</strong><br>Founder, Example Co.<br><a href=\"https://example.com\">example.com</a></div>",
+
+      "_comment_signature_image_path": "Optional fallback. Used ONLY when signature_html is not set. The image is embedded inline at the bottom of the email (Content-ID), so it appears as a signature image rather than a file attachment. Path is relative to the project root or absolute.",
+      "signature_image_path": "./signatures/personal.png"
     },
     "work": {
-      "email": "ali@logicbuilder.ai",
-      "description": "Work account"
-    },
-    "maryaam_personal": {
-      "email": "maryaam2209@gmail.com",
-      "description": "Maryam Personal Gmail"
-    },
-    "maryaam_work": {
-      "email": "maryamworkx@gmail.com",
-      "description": "Maryam Work Gmail"
+      "email": "you@company.com",
+      "description": "Work account",
+      "signature_image_path": "./signatures/work.png"
     }
   },
   "credentials_dir": "./credentials"
